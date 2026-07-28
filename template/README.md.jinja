@@ -1,3 +1,12 @@
+{%- set agent_names = [] -%}
+{%- if install_claude %}{% set _ = agent_names.append('Claude Code') %}{% endif -%}
+{%- if install_codex %}{% set _ = agent_names.append('Codex') %}{% endif -%}
+{%- if install_opencode %}{% set _ = agent_names.append('OpenCode') %}{% endif -%}
+{%- set any_agent = install_claude or install_codex or install_opencode -%}
+{%- if agent_names | length == 1 %}{% set agent_list_prose = agent_names[0] %}
+{%- elif agent_names | length == 2 %}{% set agent_list_prose = agent_names[0] ~ ' and ' ~ agent_names[1] %}
+{%- else %}{% set agent_list_prose = (agent_names[:-1] | join(', ')) ~ ', and ' ~ agent_names[-1] %}
+{%- endif %}
 # {{ project_name }}
 
 {{ project_description }}
@@ -8,25 +17,32 @@
 
 Install Podman by following the official [installation instructions](https://podman.io/docs/installation).
 
-You will also need access to Claude Code, Codex, or a model provider supported by OpenCode.
+{% if any_agent %}You will also need access to {{ agent_list_prose }}.{% if install_opencode %} OpenCode additionally needs a supported model provider (it also ships free built-in models that need no provider account).{% endif %}{% else %}This project installs no coding agent in its development container; the container provides only the language toolchain and Riprap tooling.{% endif %}
 
 ### Launching the development environment
 
 All development **must** take place within the development container.
-The template includes hooks that prevent Claude Code, Codex, and OpenCode from answering prompts unless you are running in a containerized environment. Podman builds and runs that container on your own machine; on a host that cannot build one, such as a compute cluster, Apptainer runs a prebuilt image (see [Running on a compute cluster](#running-on-a-compute-cluster) below).
+{% if any_agent %}The template includes hooks that prevent {{ agent_list_prose }} from answering prompts unless you are running in a containerized environment. {% endif %}Podman builds and runs that container on your own machine; on a host that cannot build one, such as a compute cluster, Apptainer runs a prebuilt image (see [Running on a compute cluster](#running-on-a-compute-cluster) below).
 
 Run `bash rr.sh` on Linux/Mac, or `rr.bat` on Windows.
 This builds the container and drops you into an interactive shell in `/work`.
-Run `claude` from the shell to start Claude Code, `codex` to start Codex, or `opencode` to start OpenCode.
+{% if any_agent %}
+From the shell, run {% if install_claude %}`claude` to start Claude Code{% endif %}{% if install_claude and install_codex and install_opencode %}, {% elif install_claude and (install_codex or install_opencode) %} or {% endif %}{% if install_codex %}`codex` to start Codex{% endif %}{% if install_codex and install_opencode %}, or {% endif %}{% if install_opencode %}`opencode` to start OpenCode{% endif %}.
 Agent authentication is stored in separate Podman named volumes scoped by the random UUID in
 `.riprap/state/project-id`; the launchers never mount your host agent configuration directories.
 The UUID is non-secret project metadata and should be committed. To clear authentication, run
-`bash rr.sh --reset-agent-state claude`, `codex`, `opencode`, or `all` (use `rr.bat` on Windows).
+`bash rr.sh --reset-agent-state` with {% if install_claude %}`claude`{% endif %}{% if install_claude and (install_codex or install_opencode) %}, {% endif %}{% if install_codex %}`codex`{% endif %}{% if install_codex and install_opencode %}, {% endif %}{% if install_opencode %}`opencode`{% endif %}, or `all` (use `rr.bat` on Windows).
+{% if install_codex %}
 On the first Codex run, use `/hooks` to review and trust the repository's container-check hook;
 Codex deliberately does not run a new project-local hook until you approve its exact definition.
+{% endif %}
+{% if install_opencode %}
 For OpenCode, authenticate a provider with `opencode auth login`, then choose a model with
 `/models`; OpenCode also ships free built-in models that need no provider account.
+{% endif %}
+{% endif %}
 
+{% if any_agent %}
 #### Updating the agents
 
 The agents update themselves automatically, at most once a week, with no action from you.
@@ -45,14 +61,15 @@ If a new agent release turns out to be a bad one, you can pin your way out of it
 for an upstream fix. Create `.riprap/user/agent-pin.env`:
 
 ```
-CLAUDE_VERSION=2.1.205
-CODEX_VERSION=0.144.6
-OPENCODE_VERSION=1.15.11
-```
+{% if install_claude %}CLAUDE_VERSION=2.1.205
+{% endif %}{% if install_codex %}CODEX_VERSION=0.144.6
+{% endif %}{% if install_opencode %}OPENCODE_VERSION=1.15.11
+{% endif %}```
 
 Pinned agents are held at exactly those releases; any agent you leave out keeps tracking its
 current release. Only exact `x.y.z` versions are accepted; values such as `latest` will error.
 Delete the file to return to the weekly schedule described above.
+{% endif %}
 
 #### Running on a compute cluster
 
@@ -177,20 +194,24 @@ project's responsibility, as GitHub retires older versions over time.
 
 ### 1. Define the project architecture
 
-Start by capturing the project's high-level goals and architecture. Run the built-in skill. In
-Claude Code, use:
+Start by capturing the project's high-level goals and architecture. Run the built-in skill.
+{% if install_claude %}
+In Claude Code, use:
 
 ```
 /rr-architecture <one-line description of what you are building>
 ```
-
+{% endif %}
+{% if install_codex %}
 In Codex, use:
 
 ```
 $rr-architecture <one-line description of what you are building>
 ```
-
+{% endif %}
+{% if install_opencode %}
 In OpenCode, ask it to use the `rr-architecture` skill with the same description.
+{% endif %}
 
 The agent will ask questions to pin down the decisions with broad architectural leverage — intended scale and audience, execution targets, extensibility (for example, whether a plugin system is needed), key libraries, and the whole-project testing strategy — and record them in `rqm/ARCHITECTURE.md`.
 The agent's project guidance references that file, so every later step shares the same context.
@@ -205,19 +226,23 @@ Use the built-in skill by prompting:
 Help me plan <feature description>. Place the requirements document in rqm/<feature>.md.
 ```
 
+{% if install_claude %}
 Or invoke the skill explicitly in Claude Code:
 
 ```
 /rr-plan Help me plan <feature description>. Place the requirements document in rqm/<feature>.md.
 ```
-
+{% endif %}
+{% if install_codex %}
 In Codex, use:
 
 ```
 $rr-plan Help me plan <feature description>. Place the requirements document in rqm/<feature>.md.
 ```
-
+{% endif %}
+{% if install_opencode %}
 In OpenCode, ask it to use the `rr-plan` skill with the same request.
+{% endif %}
 
 The agent will ask clarifying questions and write a complete requirements file including Gherkin scenarios.
 
@@ -237,15 +262,15 @@ I have updated rqm/<feature>.md. Update the implementation to match.
 
 ### 5. Verify understanding with quizzes
 
-Run `/rr-quiz` in Claude Code, `$rr-quiz` in Codex, or ask OpenCode to use the `rr-quiz` skill. The
-agent will ask you a multiple-choice question about the implementation to help ensure you understand
+{% if any_agent %}Run the `rr-quiz` skill — {% if install_claude %}`/rr-quiz` in Claude Code{% endif %}{% if install_codex %}{% if install_claude %}, {% endif %}`$rr-quiz` in Codex{% endif %}{% if install_opencode %}{% if install_claude or install_codex %}, or {% endif %}ask OpenCode to use the `rr-quiz` skill{% endif %}. The
+{% else %}The `rr-quiz` skill checks your understanding of the implementation. The
+{% endif %}agent will ask you a multiple-choice question about the implementation to help ensure you understand
 the code.
 
 ### Customizing skills
 
-The authoritative, agent-neutral skill implementations live under `.riprap/managed/skills/`. Claude
-discovers adapters under `.claude/skills/`, while Codex discovers adapters under `.agents/skills/`.
-OpenCode discovers adapters under `.opencode/skills/`.
+The authoritative, agent-neutral skill implementations live under `.riprap/managed/skills/`.
+{% if install_claude %}Claude discovers adapters under `.claude/skills/`. {% endif %}{% if install_codex %}Codex discovers adapters under `.agents/skills/`. {% endif %}{% if install_opencode %}OpenCode discovers adapters under `.opencode/skills/`. {% endif %}
 Project-owned extensions live under `.riprap/user/skills/<skill-name>/local.md`. Use those files to
 extend or override skills with project-specific conventions; Copier preserves them during template
 updates. Avoid editing `SKILL.md` directly because canonical implementations and adapters are
@@ -262,8 +287,9 @@ to the project.
 
 Run template updates with `copier update`.
 
+{% if install_claude or install_opencode %}
 ### Agent permissions
-
+{% if install_claude %}
 `.claude/settings.json` is Riprap-managed. It pre-approves the commands Riprap's own skills run and
 your language's routine build, test, and lint commands, and it denies reading credential files. It
 deliberately does not pre-approve a general interpreter, a package installer, or a shell, so those
@@ -273,17 +299,20 @@ Add your project's own permissions to `.claude/settings.local.json`, which Claud
 the managed settings rather than replacing them. Choosing "don't ask again" at a prompt writes the
 rule there for you. That file is ignored by Git, so your approvals stay yours and template updates
 never disturb them.
-
+{% endif %}
+{% if install_opencode %}
 `opencode.json` provides equivalent managed OpenCode defaults. Store personal provider, model, and
 permission choices through OpenCode's user configuration, which lives in the project-scoped
 OpenCode state volume.
+{% endif %}
+{% endif %}
 
 ## Key Rules
 
 ### Only ever use agentic AI inside a rootless container
 
 LLMs are susceptible to prompt injection and data poisoning.
-This repository includes hooks that block Claude Code, Codex, and OpenCode unless they are running inside a rootless container,
+This repository includes hooks that block {% if any_agent %}{{ agent_list_prose }}{% else %}coding agents{% endif %} unless they are running inside a rootless container,
 such as a Podman container.
 Even inside a container, you should:
 

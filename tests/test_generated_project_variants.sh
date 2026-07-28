@@ -128,6 +128,52 @@ test_contributor_guidance_does_not_invent_test_command() (
   done
 )
 
+render_agents() {
+  local destination="$1" agents="$2"
+  copier copy --defaults --vcs-ref HEAD \
+    --data project_name='Variant Test' --data project_slug='variant-test' \
+    --data project_description='Exercises coherent generated variants' \
+    --data language=rust --data include_rust_skeleton=false \
+    --data author_name='Variant Author' --data author_email='variant@example.com' \
+    --data copyright_year=2042 --data open_source_license='Not Open Source' \
+    --data "agents=$agents" "$ROOT" "$destination" >/dev/null
+}
+
+# rq-bcbeb1ed
+test_docs_name_only_selected_agents() (
+  local temp project
+  temp="$(mktemp -d)"; trap 'rm -rf "$temp"' EXIT; project="$temp/project"
+  render_agents "$project" '["Claude Code","OpenCode"]'
+  grep -Fq 'to start Claude Code' "$project/README.md" || fail 'docs omit how to start the selected Claude Code'
+  grep -Fq 'to start OpenCode' "$project/README.md" || fail 'docs omit how to start the selected OpenCode'
+  ! grep -Fq 'to start Codex' "$project/README.md" || fail 'docs explain how to start the unselected Codex'
+  ! grep -Fq 'In Codex, use' "$project/README.md" || fail 'docs instruct running the unselected Codex'
+  ! grep -Fq 'CODEX_VERSION' "$project/README.md" || fail 'docs show a pin line for the unselected Codex'
+)
+
+# rq-9ebdd1a7
+test_docs_with_all_agents_name_each() (
+  local temp project phrase
+  temp="$(mktemp -d)"; trap 'rm -rf "$temp"' EXIT; project="$temp/project"
+  render_agents "$project" '["Claude Code","Codex","OpenCode"]'
+  for phrase in 'to start Claude Code' 'to start Codex' 'to start OpenCode'; do
+    grep -Fq "$phrase" "$project/README.md" || fail "docs omit how to start a selected agent: $phrase"
+  done
+)
+
+# rq-18962eb4
+test_docs_without_agents_document_agent_less_container() (
+  local temp project
+  temp="$(mktemp -d)"; trap 'rm -rf "$temp"' EXIT; project="$temp/project"
+  render_agents "$project" '[]'
+  grep -Fq 'installs no coding agent' "$project/README.md" || \
+    fail 'agent-free docs do not describe an agent-less container'
+  ! grep -Eq 'to start (Claude Code|Codex|OpenCode)' "$project/README.md" || \
+    fail 'agent-free docs instruct starting an agent'
+  ! grep -Eq 'In (Claude Code|Codex|OpenCode), use' "$project/README.md" || \
+    fail 'agent-free docs instruct running an agent'
+)
+
 test_docs_without_package_are_self_contained
 test_docs_with_package_describe_generated_package
 test_lgpl_distribution_is_complete
@@ -135,4 +181,7 @@ test_permissive_licenses_carry_project_notice
 test_closed_source_variant_makes_no_open_source_claim
 test_contributor_guidance_matches_generated_skeleton
 test_contributor_guidance_does_not_invent_test_command
+test_docs_name_only_selected_agents
+test_docs_with_all_agents_name_each
+test_docs_without_agents_document_agent_less_container
 printf 'PASS: generated project variants are coherent\n'

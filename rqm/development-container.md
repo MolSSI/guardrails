@@ -45,10 +45,11 @@ that cannot build one, as described in `portable-development-image.md`.
 - The installed Copier release is compatible with the template's declared minimum Copier major
   version.
 - The `copier` executable is available on `PATH` in interactive development containers.
-- The tooling image contains no Claude, Codex, or OpenCode installation. It builds independently of agent
-  release selection and refresh state.
-- The agent image is based on the tooling image and provides the Claude, Codex, and OpenCode
-  command-line agents on `PATH` in interactive development containers.
+- The tooling image contains no Claude, Codex, or OpenCode installation. It builds independently of
+  which agents a project selects and of agent release and refresh state.
+- The agent image is based on the tooling image and provides the project's selected command-line
+  agents -- any subset of Claude, Codex, and OpenCode -- on `PATH` in interactive development
+  containers.
 - The project-owned image is based on the agent image.
 - Refreshing agents rebuilds the agent image without rebuilding the tooling image or conflating an
   agent download failure with a tooling-image build failure.
@@ -77,17 +78,42 @@ that cannot build one, as described in `portable-development-image.md`.
 - These are properties of the image rather than of one runtime, so they are established wherever any
   container runtime is available by running the image as a user other than root.
 
+## Agent Selection <!-- rq-44a7f2bd -->
+
+- A project installs any subset of the supported command-line agents -- Claude, Codex, and OpenCode
+  -- in its agent image. The subset is a project property chosen when the project is generated and
+  adjustable through template update, and it may be all of the agents, some of them, or none.
+- The default selection is every supported agent, so a project that expresses no preference installs
+  all of them.
+- The selection is compiled into the project's managed container definitions and agent-build scripts
+  when the project is generated, and template update regenerates them. Those scripts record a
+  version only for a selected agent, so the candidate build key names exactly the selected set and no
+  separate runtime selection file exists. A user changes the selection by re-answering the template
+  question through an update, not by editing launch or build-key files. Because agent-neutral skills
+  and per-agent adapter directories are ordinary project content, they render for every agent
+  regardless of the selection; the selection governs only what the agent image installs.
+- The agent image installs exactly the selected agents and no others. An unselected agent
+  contributes no program to the image and places no command on `PATH`. The agent image builds
+  successfully for every subset, including the empty subset, which yields an agent image that adds
+  no agent to the tooling image it is based on.
+- Agent selection is fixed for a built image rather than chosen per launch. A launcher installs,
+  verifies, and labels exactly the agents the candidate build key records, and carries a build-key
+  assignment only for a selected agent; an unselected agent appears nowhere a selected agent would
+  carry a release.
+
 ## Agent Releases <!-- rq-ce1eb03c -->
 
-- Each supported agent is installed at its current release by default. No routine user action keeps
+- Each selected agent is installed at its current release by default. No routine user action keeps
   the agents current.
+- An unselected agent has no installed release. A launcher never downloads it, never inspects an
+  image for its version, and carries no build-key assignment or image label for it.
 - The development container disables each agent's in-container automatic updater through the
   agent's supported environment or managed configuration mechanism. An agent that updates itself
   inside a disposable container installs into a
   path that is not a mounted volume, so the update is discarded when the container is removed and
   is repeated every session. The agent image is therefore the only thing that determines which
   agent release runs.
-- A launcher records an agent release only when the built candidate image's version output contains
+- A launcher records a selected agent's release only when the built candidate image's version output contains
   a numeric `major.minor.patch` release core. Surrounding text and suffixes such as `1.2.3-beta`
   are accepted; the recorded release is the numeric `1.2.3` core. Output without a parseable release
   core is a refresh failure: the agent image is left unlabeled and the successful build key is
@@ -106,7 +132,8 @@ that cannot build one, as described in `portable-development-image.md`.
 - `.riprap/state/container/agent-build.env` is the successful agent build key. It records the release
   selection used by the installed agent image, as the assignments `CLAUDE_VERSION` and
   `CODEX_VERSION` and `OPENCODE_VERSION`, together with a `REFRESH` value that changes on the
-  refresh schedule.
+  refresh schedule. The build key carries a `CLAUDE_VERSION`, `CODEX_VERSION`, or `OPENCODE_VERSION`
+  assignment only for a selected agent; an unselected agent has no assignment.
 - Before an agent refresh, the launcher derives a candidate build key without replacing the
   successful build key. The agent image build uses the candidate as its cache identity, so a change
   to the candidate rebuilds the agent installation layers while an unchanged candidate reuses them.
@@ -118,10 +145,13 @@ that cannot build one, as described in `portable-development-image.md`.
   candidate state.
 - The build key is generated local state. It is never committed, and generated `.gitignore` files
   reject it, so it describes one machine's container rather than a property of the project.
-- When no pin is present, the recorded release for each agent is `latest` and `REFRESH` is the
-  current ISO week. The agents are therefore reinstalled at most once per calendar week, which
-  bounds how far behind the installed releases can fall. A launch that crosses a week boundary
-  refreshes sooner than a full seven days rather than later, so the bound always holds.
+- When no pin is present, the recorded release for each selected agent is `latest` and an
+  unselected agent has no assignment. `REFRESH` is the current ISO week while at least one selected
+  agent tracks its current release, so the selected agents are reinstalled at most once per calendar
+  week, which bounds how far behind the installed releases can fall. A launch that crosses a week
+  boundary refreshes sooner than a full seven days rather than later, so the bound always holds. A
+  project that selects no agent, or whose every selected agent is pinned, has nothing to track and
+  records a fixed `REFRESH` instead of the week, so no weekly rebuild runs.
 - Because the build key's contents determine the refresh, launching repeatedly within one week
   reuses the cached agent layers and contacts no release metadata.
 - The shell and Windows launch paths derive the same ISO-8601 week-year and week for any given
@@ -134,32 +164,34 @@ that cannot build one, as described in `portable-development-image.md`.
 
 ## Optional Release Pin <!-- rq-5e710604 -->
 
-- `.riprap/user/agent-pin.env` is an optional, user-created file that pins any or all supported
-  agents to an exact release, using the same `CLAUDE_VERSION`, `CODEX_VERSION`, and
-  `OPENCODE_VERSION` assignments. It does not exist
+- `.riprap/user/agent-pin.env` is an optional, user-created file that pins any or all of the
+  project's selected agents to an exact release, using the same `CLAUDE_VERSION`, `CODEX_VERSION`,
+  and `OPENCODE_VERSION` assignments. It does not exist
   in a generated project until a user creates it, so the unpinned schedule above is the default.
 - A pinned agent is installed at exactly the pinned release. An unpinned agent continues to track
   its current release.
-- While every agent is pinned, `REFRESH` records that the build key is pinned rather than the
-  current week, so the schedule does not reinstall pinned releases week after week. While any agent
-  is still unpinned, `REFRESH` continues to record the week, because that agent must keep tracking
-  its current release; a pinned agent is then reinstalled at its pinned release, which costs a
-  download but never changes what is installed. Removing the file returns every agent to the
-  refresh schedule at the next launch.
+- While every selected agent is pinned, or the project selects no agent, `REFRESH` records that the
+  build key is fixed rather than the current week, so the schedule does not reinstall pinned releases
+  week after week. While any selected agent is still unpinned, `REFRESH` continues to record the
+  week, because that agent must keep tracking its current release; a pinned agent is then reinstalled
+  at its pinned release, which costs a download but never changes what is installed. Removing the file
+  returns every selected agent to the refresh schedule at the next launch.
 - A present pin is a strict assignment file. It contains one or more of `CLAUDE_VERSION`,
-  `CODEX_VERSION`, and `OPENCODE_VERSION`, each at most once and with a nonempty exact release
+  `CODEX_VERSION`, and `OPENCODE_VERSION`, each naming one of the project's selected agents, each at
+  most once and with a nonempty exact release
   version. Empty files, empty
-  values, duplicate assignments, unknown names, malformed lines, and non-exact versions fail the
-  launch with an actionable message before any image is built. Falling back to the current release
-  would silently discard the pin a user added deliberately, which is the opposite of what pinning
-  is for.
+  values, duplicate assignments, unknown names, assignments naming an unselected agent, malformed
+  lines, and non-exact versions fail the
+  launch with an actionable message before any image is built. Falling back to the current release,
+  or silently ignoring a pin for an agent the project does not install, would discard the pin a user
+  added deliberately, which is the opposite of what pinning is for.
 - Every launcher applies the same pin validation and reports the same defect for the same pin
   content. Each line is checked in a fixed precedence: line structure, then whether the name is
-  recognized, then whether the name is repeated, then whether the value is nonempty, then whether
-  the value is an exact release version. The first failing check determines the message, so a name
-  that is both unrecognized and paired with a non-version value is reported as an unrecognized name
-  on every platform. A user who moves between hosts, or who reads a colleague's error message,
-  sees one account of what is wrong with the file.
+  recognized, then whether that recognized agent is selected, then whether the name is repeated, then
+  whether the value is nonempty, then whether the value is an exact release version. The first failing
+  check determines the message, so a name that is both unrecognized and paired with a non-version
+  value is reported as an unrecognized name on every platform. A user who moves between hosts, or who
+  reads a colleague's error message, sees one account of what is wrong with the file.
 - The pin exists so that a bad agent release can be escaped without waiting for an upstream fix. It
   is ordinary project content: a user may commit it to hold a whole team at one release, or leave
   it untracked to affect one machine.
@@ -218,17 +250,22 @@ that cannot build one, as described in `portable-development-image.md`.
 - `rr.sh` and `rr.bat`
   - Derive the project's image names from its validated canonical project UUID before any image is
     built, inspected, promoted, selected for fallback, or run.
-  - Validate the complete optional pin and derive a candidate from it and the current ISO week
-    before building any image.
-  - Stop before building when a pin is malformed, identifying the offending content.
+  - Derive a candidate that installs only the project's selected agents, carrying a build-key
+    assignment only for a selected agent.
+  - Validate the complete optional pin, including rejecting a pin assignment that names an agent the
+    project did not select, and derive a candidate from it and the current ISO week before building
+    any image.
+  - Stop before building when a pin is malformed or names an unselected agent, identifying the
+    offending content.
   - Build the tooling image independently from the agent refresh and stop on a tooling build failure.
   - Build and verify the agent image, promote successful state atomically, and discard candidate
     state after failure or interruption.
   - Continue with a compatible successful agent image, after reporting the failure, only when the
     agent refresh fails.
-  - Read a numeric `major.minor.patch` release core for each agent from the built candidate image,
-    accepting surrounding text and release suffixes, and treat output without such a core as a
-    refresh failure.
+  - Read a numeric `major.minor.patch` release core for each selected agent from the built candidate
+    image, accepting surrounding text and release suffixes, and treat output without such a core as a
+    refresh failure. Perform no version verification for an unselected agent and carry no assignment
+    or label for it.
   - Validate the project's container run options and stop before starting a container when a line
     is not a single whitespace-free argument beginning with `-`.
   - Start the interactive development container with the project's run options applied after the
@@ -244,6 +281,10 @@ that cannot build one, as described in `portable-development-image.md`.
   candidate and build-key state, build sequencing, version verification, and failure fallback are
   all observable from the commands a launcher issues and the state it writes, so none of them
   requires a real image build.
+- Agent selection is likewise observable from the commands a launcher issues and the state it writes
+  -- which agents its candidate installs and verifies, and which it records as absent -- so a subset
+  selection, an empty selection, and a pin that names an unselected agent are all validated against
+  the mock runtime without building a real image.
 - Windows launcher validation therefore requires no container runtime, virtualization, or Linux
   subsystem, and it runs on a stock Windows continuous integration runner.
 - Image content is validated separately, by building the real images where a rootless Podman
@@ -257,6 +298,8 @@ that cannot build one, as described in `portable-development-image.md`.
   current-release smoke test keeps the other agents at known exact releases so an upstream change
   to Claude or OpenCode cannot obscure whether the current Codex installer and release artifact
   remain compatible with the generated agent image.
+- Image validation also builds an agent image from a proper subset of the supported agents and
+  confirms the built image provides exactly the selected agents' commands and none of the others.
 - Codex archive extraction is also validated with a synthetic archive whose directory hierarchy has
   non-build ownership and whose files include an executable. The extraction fixture rejects
   attempts to restore archived ownership or final directory modes, modeling a rootless builder
@@ -287,7 +330,8 @@ Feature: Riprap development container
 
   @rq-276c546b
   Scenario: Installed agent releases match authoritative image labels
-    Given a generated project whose candidate records an exact release for each agent
+    Given a generated project selects all supported agents
+    And its candidate records an exact release for each agent
     When the template-owned agent image is built successfully
     Then its labels record the exact installed Claude, Codex, and OpenCode releases
     And running "claude --version" in the built image reports the labeled Claude release
@@ -357,7 +401,7 @@ Feature: Riprap development container
 
   @rq-3640e734
   Scenario: The image runs correctly as an unprivileged user
-    Given a generated project rendered from the Riprap template
+    Given a generated project selects all supported agents
     When its project image is run as a user other than root with no mounts
     Then "copier --version" succeeds
     And the language toolchain for the project's language is present
@@ -382,7 +426,7 @@ Feature: Riprap development container
   Scenario: An unpinned launch records the current week and tracks current releases
     Given a generated project has no release pin
     When the project launcher starts the development environment
-    Then the build key records "latest" for each agent
+    Then the build key records "latest" for each selected agent
     And the build key records the current ISO week
 
   @rq-145d819f
@@ -403,7 +447,7 @@ Feature: Riprap development container
 
   @rq-c82c7b32
   Scenario: A pin installs an exact release and suspends the weekly refresh
-    Given a generated project pins each agent to an exact release
+    Given a generated project pins each selected agent to an exact release
     When the project launcher starts the development environment
     Then the build key records each pinned release
     And the build key does not record an ISO week
@@ -414,7 +458,7 @@ Feature: Riprap development container
     Given a generated project whose build key records pinned releases
     When the release pin is removed
     And the project launcher starts the development environment
-    Then the build key records "latest" for each agent
+    Then the build key records "latest" for each selected agent
     And the build key records the current ISO week
 
   @rq-6c8f6c05
@@ -681,4 +725,47 @@ Feature: Riprap development container
     When the project adopts a later template release with "copier update"
     Then the run options file retains the user's edit
 
+  @rq-487e0817
+  Scenario: A project installs only its selected agents
+    Given a generated project selects Claude and OpenCode but not Codex
+    When the template-owned agent image is built
+    Then the image build succeeds
+    And running "claude --version" in the built image succeeds
+    And running "opencode --version" in the built image succeeds
+    And the built image provides no "codex" command on `PATH`
+    And the image labels record the installed Claude and OpenCode releases and carry no Codex release label
+
+  @rq-944dc431
+  Scenario: A project that selects no agent builds a runnable agent image
+    Given a generated project selects none of the supported agents
+    When the template-owned agent image is built
+    Then the image build succeeds
+    And the built image provides no Claude, Codex, or OpenCode command on `PATH`
+    And running "copier --version" in the built image succeeds
+    And the image labels carry no agent release
+
+  @rq-849762d2
+  Scenario: An unselected agent is recorded as absent without version verification
+    Given a generated project does not select Codex
+    When the project launcher starts the development environment
+    Then the build key carries no Codex version assignment
+    And the launcher performs no Codex version verification
+    And no Codex release is downloaded
+
+  @rq-0ac07b19
+  Scenario: A pin that names an unselected agent stops the launch before any image is built
+    Given a generated project does not select Codex
+    And a release pin contains `CODEX_VERSION=1.2.3`
+    When the project launcher starts the development environment
+    Then launching fails
+    And the failure message identifies the unselected agent
+    And no image is built
+
+  @rq-f6cee9b5
+  Scenario: A project with no agent to track suspends the weekly refresh
+    Given a generated project selects no agent
+    When the project launcher starts the development environment
+    Then the build key carries no agent version assignment
+    And the build key does not record an ISO week
+    And launching again in a later week leaves the build key unchanged
 ```

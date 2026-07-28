@@ -123,6 +123,46 @@ function New-TestProject {
     return [pscustomobject]@{ Temp = $temp; Project = $project }
 }
 
+# Renders a project with an explicit agent selection (a JSON list), so the launcher and its
+# templated build scripts mention only the selected agents.
+function Render-ProjectWithAgents([string]$Destination, [string]$Agents) {
+    $savedPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & copier copy --trust --defaults --vcs-ref HEAD `
+            --data project_name='Windows Test' --data project_slug='windows-test' `
+            --data project_description='test' --data language=rust `
+            --data include_rust_skeleton=false --data author_name=Test `
+            --data author_email=test@example.com --data open_source_license='Not Open Source' `
+            --data "agents=$Agents" `
+            $Root $Destination 2>&1 | Out-Null
+        $code = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $savedPreference }
+    if ($code -ne 0) { Fail "copier could not render a project" }
+}
+
+function New-TestProjectWithAgents([string]$Agents) {
+    $temp = Join-Path ([IO.Path]::GetTempPath()) ("rr-" + [Guid]::NewGuid().ToString("N").Substring(0, 12))
+    $project = Join-Path $temp "project"
+    $bin = Join-Path $temp "bin"
+    $volumes = Join-Path $temp "volumes"
+    New-Item -ItemType Directory -Force -Path $bin, $volumes | Out-Null
+    Render-ProjectWithAgents $project $Agents
+    New-MockPodman $bin
+
+    $env:PATH = "$bin;$OriginalPath"
+    $env:PODMAN_LOG = Join-Path $temp "podman.log"
+    $env:MOCK_VOLUMES = $volumes
+    $env:MOCK_IMAGE_EXISTS = "0"
+    $env:MOCK_FAIL_BUILD = ""
+    $env:MOCK_CLAUDE_VERSION = "2.1.205 (Claude Code)"
+    $env:MOCK_CODEX_VERSION = "codex-cli 0.144.6"
+    $env:MOCK_OPENCODE_VERSION = "1.15.11"
+    New-Item -ItemType File -Force -Path $env:PODMAN_LOG | Out-Null
+
+    return [pscustomobject]@{ Temp = $temp; Project = $project }
+}
+
 # rr.bat ends with "pause", so stdin is redirected to keep the launcher non-interactive.
 function Invoke-Launcher([string]$Project) {
     Push-Location $Project
@@ -196,6 +236,25 @@ Test-Case "the Windows launcher validates the pin before building" {
     if ($result.ExitCode -eq 0) { Fail "a non-exact pin was accepted" }
     if ($result.Output -notmatch "CLAUDE_VERSION") { Fail "the offending assignment is not identified" }
     if ((Get-PodmanLog) -match "(?m)^build ") { Fail "an image was built despite a malformed pin" }
+}
+
+# rq-0ac07b19
+Test-Case "the Windows launcher rejects a pin for an unselected agent" {
+    $t = New-TestProjectWithAgents '["Claude Code","OpenCode"]'
+    Set-Content -LiteralPath (Join-Path $t.Project ".riprap/user/agent-pin.env") -Value "CODEX_VERSION=1.2.3"
+    $result = Invoke-Launcher $t.Project
+    if ($result.ExitCode -eq 0) { Fail "a pin for an unselected agent was accepted" }
+    if ($result.Output -notmatch "does not install") { Fail "the unselected agent is not identified" }
+    if ($result.Output -notmatch "CODEX_VERSION") { Fail "the offending assignment is not identified" }
+    if ((Get-PodmanLog) -match "(?m)^build ") { Fail "an image was built despite a pin for an unselected agent" }
+}
+
+# rq-f6cee9b5
+Test-Case "the Windows launcher fixes the refresh for an agent-free project" {
+    $t = New-TestProjectWithAgents '[]'
+    Invoke-Launcher $t.Project | Out-Null
+    if ((Get-BuildKeyValue $t.Project "REFRESH") -ne "pinned") { Fail "an agent-free project still tracks the week" }
+    if ($null -ne (Get-BuildKeyValue $t.Project "CLAUDE_VERSION")) { Fail "an agent-free project records an agent version" }
 }
 
 # rq-13d744b1
