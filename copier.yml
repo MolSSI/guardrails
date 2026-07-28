@@ -67,6 +67,44 @@ base_image:
   default: "ubuntu:24.04"
 
 # ---------------------------------------------------------------------------
+# Coding agents
+# rq-44a7f2bd rq-46f6180d
+# ---------------------------------------------------------------------------
+
+agents:
+  type: str
+  multiselect: true
+  help: >-
+    Which command-line coding agents should the development image install? Choose any
+    subset; the launcher installs, refreshes, and pins exactly the agents you select.
+    Selecting none builds a container with the toolchain but no agent.
+  choices:
+    - Claude Code
+    - Codex
+    - OpenCode
+  default:
+    - Claude Code
+    - Codex
+    - OpenCode
+
+# Derived, never asked: single flags that switch each agent's installation on and off in the
+# container definitions and launcher scripts.
+install_claude:
+  type: bool
+  default: "{{ 'Claude Code' in agents }}"
+  when: false
+
+install_codex:
+  type: bool
+  default: "{{ 'Codex' in agents }}"
+  when: false
+
+install_opencode:
+  type: bool
+  default: "{{ 'OpenCode' in agents }}"
+  when: false
+
+# ---------------------------------------------------------------------------
 # Language
 # ---------------------------------------------------------------------------
 

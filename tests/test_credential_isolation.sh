@@ -20,10 +20,17 @@ render_project() {
   fi
 }
 
-setup_project() {
-  TEST_TMP="$(mktemp -d)"; PROJECT="$TEST_TMP/project"; MOCK_BIN="$TEST_TMP/bin"
-  mkdir -p "$MOCK_BIN" "$TEST_TMP/volumes"; render_project "$PROJECT"
-  mkdir -p "$PROJECT/.riprap/state/container"
+# A project rendered with an explicit agent selection. Selection requires the real generator,
+# so callers that use it guard on copier being available.
+render_project_agents() {
+  copier copy --trust --defaults --vcs-ref HEAD --data project_name='Credential Test' \
+    --data project_slug='credential-test' --data project_description='test' \
+    --data language=rust --data include_rust_skeleton=false \
+    --data author_name=Test --data author_email=test@example.com \
+    --data open_source_license='Not Open Source' --data "agents=$2" "$ROOT" "$1" >/dev/null
+}
+
+write_mock_podman() {
   cat > "$MOCK_BIN/podman" <<'MOCK'
 #!/bin/sh
 echo "$*" >> "$PODMAN_LOG"
@@ -43,6 +50,21 @@ MOCK
   chmod +x "$MOCK_BIN/podman"
   export PATH="$MOCK_BIN:$PATH" PODMAN_LOG="$TEST_TMP/podman.log" MOCK_VOLUMES="$TEST_TMP/volumes"
   : > "$PODMAN_LOG"
+}
+
+setup_project() {
+  TEST_TMP="$(mktemp -d)"; PROJECT="$TEST_TMP/project"; MOCK_BIN="$TEST_TMP/bin"
+  mkdir -p "$MOCK_BIN" "$TEST_TMP/volumes"; render_project "$PROJECT"
+  mkdir -p "$PROJECT/.riprap/state/container"
+  write_mock_podman
+}
+
+# Like setup_project, but renders the project with the given agent selection (a JSON list).
+setup_project_with_agents() {
+  TEST_TMP="$(mktemp -d)"; PROJECT="$TEST_TMP/project"; MOCK_BIN="$TEST_TMP/bin"
+  mkdir -p "$MOCK_BIN" "$TEST_TMP/volumes"; render_project_agents "$PROJECT" "$1"
+  mkdir -p "$PROJECT/.riprap/state/container"
+  write_mock_podman
 }
 
 # rq-9d9dea75 rq-37192a21
@@ -307,6 +329,46 @@ test_duplicate_pin_name_stops_launch() {
 
 # rq-08b8e355
 test_malformed_pin_line_stops_launch() { assert_invalid_pin 'not-an-assignment\n' 'a malformed pin line' 'malformed'; }
+
+# A project that installs only some agents records and verifies exactly those; an unselected
+# agent is neither version-verified nor recorded in the build key.
+# rq-849762d2
+test_unselected_agent_is_absent_without_verification() (
+  command -v copier >/dev/null 2>&1 || { printf 'SKIP: copier unavailable; agent-selection launcher test not run\n'; exit 0; }
+  setup_project_with_agents '["Claude Code","OpenCode"]'; cd "$PROJECT"; bash rr.sh </dev/null
+  test "$(build_key INSTALLED_CLAUDE_VERSION)" = 2.1.205 || fail 'the selected Claude release was not verified'
+  test "$(build_key INSTALLED_OPENCODE_VERSION)" = 1.15.11 || fail 'the selected OpenCode release was not verified'
+  test -z "$(build_key CODEX_VERSION)" || fail 'an unselected Codex carries a build-key assignment'
+  test -z "$(build_key INSTALLED_CODEX_VERSION)" || fail 'an unselected Codex was recorded as installed'
+  ! grep -q 'codex --version' "$PODMAN_LOG" || fail 'an unselected Codex was version-verified'
+)
+
+# A pin that names an agent the project does not install fails the launch before any image is
+# built, rather than being silently ignored.
+# rq-0ac07b19
+test_pin_for_unselected_agent_stops_launch() (
+  command -v copier >/dev/null 2>&1 || { printf 'SKIP: copier unavailable; agent-selection launcher test not run\n'; exit 0; }
+  setup_project_with_agents '["Claude Code","OpenCode"]'; cd "$PROJECT"
+  printf 'CODEX_VERSION=1.2.3\n' > .riprap/user/agent-pin.env
+  ! output=$(bash rr.sh </dev/null 2>&1) || fail 'a pin for an unselected agent was accepted'
+  grep -Fiq 'does not install' <<<"$output" || fail 'the unselected agent was not identified'
+  grep -Fq 'CODEX_VERSION' <<<"$output" || fail 'the offending assignment was not identified'
+  ! grep -q '^build ' "$PODMAN_LOG" || fail 'an image was built despite a pin for an unselected agent'
+)
+
+# A project that installs no agent has nothing to track, so its build key is fixed rather than
+# recording the week, and it carries no agent version.
+# rq-f6cee9b5
+test_no_agent_selection_suspends_weekly_refresh() (
+  command -v copier >/dev/null 2>&1 || { printf 'SKIP: copier unavailable; agent-selection launcher test not run\n'; exit 0; }
+  setup_project_with_agents '[]'; cd "$PROJECT"; bash rr.sh </dev/null
+  test "$(build_key REFRESH)" = pinned || fail 'an agent-free project still tracks the week'
+  test -z "$(build_key CLAUDE_VERSION)$(build_key CODEX_VERSION)$(build_key OPENCODE_VERSION)" || \
+    fail 'an agent-free project records an agent version'
+  before=$(cksum .riprap/state/container/agent-build.env)
+  bash rr.sh </dev/null
+  test "$before" = "$(cksum .riprap/state/container/agent-build.env)" || fail 'an agent-free key changed in a later week'
+)
 
 # A refresh needs the network, so a failed build must not cost the user a working
 # environment when a base image is already present.
@@ -990,6 +1052,8 @@ test_new_week_changes_the_build_key; test_pin_installs_exact_release_and_suspend
 test_partial_pin_keeps_the_unpinned_agent_current; test_removing_the_pin_restores_the_schedule
 test_malformed_pin_stops_the_launch; test_empty_pin_stops_launch; test_empty_pin_value_stops_launch
 test_unknown_pin_name_stops_launch; test_duplicate_pin_name_stops_launch; test_malformed_pin_line_stops_launch
+test_unselected_agent_is_absent_without_verification; test_pin_for_unselected_agent_stops_launch
+test_no_agent_selection_suspends_weekly_refresh
 test_failed_refresh_falls_back_to_existing_image; test_failed_build_without_an_image_stops_the_launch
 test_projects_use_distinct_image_names; test_legacy_project_container_uses_scoped_agent_image
 test_fallback_cannot_select_another_projects_image

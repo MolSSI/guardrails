@@ -6,6 +6,19 @@ contains the notices and complete license texts needed to communicate the select
 contributor guidance distinguishes commands supplied by a rendered skeleton from commands that an
 existing project must define for itself.
 
+## Agent Selection <!-- rq-46f6180d -->
+
+- A generated project installs any subset of the supported command-line agents -- Claude, Codex,
+  and OpenCode. The choice is presented as a single multiple-choice question whose answer is the set
+  of agents to install, so a project selects the agents together rather than answering a separate
+  question for each one.
+- The selection may be every agent, a proper subset, or none. The default selection is every
+  supported agent, so a project that expresses no preference installs all of them.
+- Every selection renders a coherent project. Generated documentation that tells a reader which
+  agents the container provides, and how to start them, names exactly the selected agents and does
+  not instruct a reader to run an agent the project did not install. A project that selects no agent
+  describes a container without an agent rather than claiming an absent one.
+
 ## Python Documentation <!-- rq-51db1fdd -->
 
 - A Python documentation skeleton is self-contained and buildable when it is rendered into an empty
@@ -100,4 +113,24 @@ Feature: Render coherent project variants
     When the project is rendered
     Then its contributor guidance does not prescribe a language test command supplied by Riprap
     And it directs contributors to the project's own test instructions
+
+  @rq-bcbeb1ed
+  Scenario: Generated guidance names only the selected agents
+    Given a project selects Claude and OpenCode but not Codex
+    When the project is rendered
+    Then its generated documentation explains how to start Claude and OpenCode
+    And its generated documentation does not instruct the reader to run Codex
+
+  @rq-9ebdd1a7
+  Scenario: A project selecting every agent documents all of them
+    Given a project selects all supported agents
+    When the project is rendered
+    Then its generated documentation explains how to start Claude, Codex, and OpenCode
+
+  @rq-18962eb4
+  Scenario: A project with no agents documents an agent-less container
+    Given a project selects none of the supported agents
+    When the project is rendered
+    Then its generated documentation does not instruct the reader to run any agent
+    And it does not claim any agent is installed in the container
 ```

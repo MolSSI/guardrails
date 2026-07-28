@@ -62,6 +62,22 @@
     "title": "An empty pin stops the launch before any image is built",
     "type": "scenario"
   },
+  "rq-0ac07b19": {
+    "decl": "Scenario: A pin that names an unselected agent stops the launch before any image is built",
+    "file": "development-container",
+    "refs": [
+      {
+        "file": "tests/test_credential_isolation.sh",
+        "kind": "code"
+      },
+      {
+        "file": "tests/test_windows_launcher.ps1",
+        "kind": "code"
+      }
+    ],
+    "title": "A pin that names an unselected agent stops the launch before any image is built",
+    "type": "scenario"
+  },
   "rq-0b49d1fa": {
     "decl": "Scenario: An empty pin value stops the launch before any image is built",
     "file": "development-container",
@@ -278,6 +294,18 @@
     "refs": [],
     "title": "Out of Scope",
     "type": "section"
+  },
+  "rq-18962eb4": {
+    "decl": "Scenario: A project with no agents documents an agent-less container",
+    "file": "generated-project-variants",
+    "refs": [
+      {
+        "file": "tests/test_generated_project_variants.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "A project with no agents documents an agent-less container",
+    "type": "scenario"
   },
   "rq-197626f6": {
     "decl": "Scenario: LGPL distribution includes its complete license basis",
@@ -658,11 +686,39 @@
     "title": "Export produces a project-scoped image without launching",
     "type": "scenario"
   },
+  "rq-44a7f2bd": {
+    "decl": "## Agent Selection",
+    "file": "development-container",
+    "level": 2,
+    "refs": [],
+    "title": "Agent Selection",
+    "type": "section"
+  },
   "rq-4543a5d9": {
     "decl": "Scenario: A relocated managed component leaves nothing at its former path",
     "file": "template-ownership-layout",
     "refs": [],
     "title": "A relocated managed component leaves nothing at its former path",
+    "type": "scenario"
+  },
+  "rq-46f6180d": {
+    "decl": "## Agent Selection",
+    "file": "generated-project-variants",
+    "level": 2,
+    "refs": [],
+    "title": "Agent Selection",
+    "type": "section"
+  },
+  "rq-487e0817": {
+    "decl": "Scenario: A project installs only its selected agents",
+    "file": "development-container",
+    "refs": [
+      {
+        "file": "tests/test_development_container.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "A project installs only its selected agents",
     "type": "scenario"
   },
   "rq-4a16eccf": {
@@ -1175,6 +1231,18 @@
     "title": "A generated project enables no additional run options",
     "type": "scenario"
   },
+  "rq-849762d2": {
+    "decl": "Scenario: An unselected agent is recorded as absent without version verification",
+    "file": "development-container",
+    "refs": [
+      {
+        "file": "tests/test_credential_isolation.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "An unselected agent is recorded as absent without version verification",
+    "type": "scenario"
+  },
   "rq-860c43c8": {
     "decl": "Scenario: A generated project enables no execution-host run options",
     "file": "portable-development-image",
@@ -1341,6 +1409,18 @@
     "title": "Shipped defaults grant no interpreter, installer, or shell",
     "type": "scenario"
   },
+  "rq-944dc431": {
+    "decl": "Scenario: A project that selects no agent builds a runnable agent image",
+    "file": "development-container",
+    "refs": [
+      {
+        "file": "tests/test_development_container.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "A project that selects no agent builds a runnable agent image",
+    "type": "scenario"
+  },
   "rq-96d0dd76": {
     "decl": "## Image Roles",
     "file": "portable-development-image",
@@ -1366,6 +1446,18 @@
       }
     ],
     "title": "First launch creates a stable project identity and credential volumes",
+    "type": "scenario"
+  },
+  "rq-9ebdd1a7": {
+    "decl": "Scenario: A project selecting every agent documents all of them",
+    "file": "generated-project-variants",
+    "refs": [
+      {
+        "file": "tests/test_generated_project_variants.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "A project selecting every agent documents all of them",
     "type": "scenario"
   },
   "rq-a32974ac": {
@@ -1594,6 +1686,18 @@
       }
     ],
     "title": "A duplicate pin name stops the launch before any image is built",
+    "type": "scenario"
+  },
+  "rq-bcbeb1ed": {
+    "decl": "Scenario: Generated guidance names only the selected agents",
+    "file": "generated-project-variants",
+    "refs": [
+      {
+        "file": "tests/test_generated_project_variants.sh",
+        "kind": "code"
+      }
+    ],
+    "title": "Generated guidance names only the selected agents",
     "type": "scenario"
   },
   "rq-c2cdf6d8": {
@@ -2055,6 +2159,22 @@
       }
     ],
     "title": "The Windows launcher stops when no compatible agent image exists",
+    "type": "scenario"
+  },
+  "rq-f6cee9b5": {
+    "decl": "Scenario: A project with no agent to track suspends the weekly refresh",
+    "file": "development-container",
+    "refs": [
+      {
+        "file": "tests/test_credential_isolation.sh",
+        "kind": "code"
+      },
+      {
+        "file": "tests/test_windows_launcher.ps1",
+        "kind": "code"
+      }
+    ],
+    "title": "A project with no agent to track suspends the weekly refresh",
     "type": "scenario"
   },
   "rq-f75ca93e": {

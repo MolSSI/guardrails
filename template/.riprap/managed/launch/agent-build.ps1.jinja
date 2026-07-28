@@ -4,6 +4,10 @@ $keyFile = ".riprap/state/container/agent-build.env"
 $candidateFile = ".riprap/state/container/agent-build.candidate.env"
 $pinFile = ".riprap/user/agent-pin.env"
 $versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+$'
+# Every supported agent name is recognized so a typo is reported as unknown, but only the
+# agents this project installs may be pinned.
+$recognizedNames = @("CLAUDE_VERSION", "CODEX_VERSION", "OPENCODE_VERSION")
+$installedNames = @({% if install_claude %}"CLAUDE_VERSION"{% endif %}{% if install_claude and (install_codex or install_opencode) %}, {% endif %}{% if install_codex %}"CODEX_VERSION"{% endif %}{% if install_codex and install_opencode %}, {% endif %}{% if install_opencode %}"OPENCODE_VERSION"{% endif %})
 
 function Fail([string]$Message) {
     # An uncaught exception is reformatted and line-wrapped by Windows PowerShell, making
@@ -25,10 +29,22 @@ function Get-IsoWeekStamp([datetime]$Date = (Get-Date).ToUniversalTime()) {
 
 function Prepare-AgentBuild {
     New-Item -ItemType Directory -Force -Path ".riprap/state/container" | Out-Null
+{% if install_claude %}
     $claudeVersion = "latest"
+{% endif %}
+{% if install_codex %}
     $codexVersion = "latest"
+{% endif %}
+{% if install_opencode %}
     $opencodeVersion = "latest"
+{% endif %}
+{% if install_claude or install_codex or install_opencode %}
     $refresh = Get-IsoWeekStamp
+{% else %}
+    # This project installs no agent, so nothing tracks a current release and the weekly
+    # refresh would rebuild an agent-free image for no reason.
+    $refresh = "pinned"
+{% endif %}
 
     if (Test-Path -LiteralPath $pinFile) {
         if (-not (Test-Path -LiteralPath $pinFile -PathType Leaf)) { Fail "$pinFile must be a regular file" }
@@ -40,22 +56,32 @@ function Prepare-AgentBuild {
             $name = $Matches[1]
             $value = $Matches[2]
             # Checks run in a fixed precedence so that every launcher reports the same defect
-            # for the same file: structure, then name, then repetition, then value.
-            if ($name -notin @("CLAUDE_VERSION", "CODEX_VERSION", "OPENCODE_VERSION")) { Fail "$pinFile contains unknown assignment '$name'" }
+            # for the same file: structure, then name, then whether the named agent is installed,
+            # then repetition, then value.
+            if ($name -notin $recognizedNames) { Fail "$pinFile contains unknown assignment '$name'" }
+            if ($name -notin $installedNames) { Fail "${pinFile}: $name names an agent this project does not install" }
             if ($seen.ContainsKey($name)) { Fail "$pinFile contains duplicate $name assignments" }
             if (-not $value) { Fail "${pinFile}: $name has an empty value" }
             if ($value -notmatch $versionPattern) { Fail "${pinFile}: $name must be an exact release version such as 1.2.3, but is '$value'" }
             $seen[$name] = $value
         }
+{% if install_claude %}
         if ($seen.CLAUDE_VERSION) { $claudeVersion = $seen.CLAUDE_VERSION }
+{% endif %}
+{% if install_codex %}
         if ($seen.CODEX_VERSION) { $codexVersion = $seen.CODEX_VERSION }
+{% endif %}
+{% if install_opencode %}
         if ($seen.OPENCODE_VERSION) { $opencodeVersion = $seen.OPENCODE_VERSION }
-        if ($seen.Count -eq 3) { $refresh = "pinned" }
+{% endif %}
+        # While every installed agent is pinned, the build key is fixed rather than tracking the
+        # week, so pinned releases are not reinstalled week after week.
+        if ($seen.Count -eq {{ [install_claude, install_codex, install_opencode] | select | list | length }}) { $refresh = "pinned" }
     }
 
     $temporary = "$candidateFile.tmp.$PID"
     try {
-        $contents = "CLAUDE_VERSION=$claudeVersion`nCODEX_VERSION=$codexVersion`nOPENCODE_VERSION=$opencodeVersion`nREFRESH=$refresh`n"
+        $contents = "{% if install_claude %}CLAUDE_VERSION=$claudeVersion`n{% endif %}{% if install_codex %}CODEX_VERSION=$codexVersion`n{% endif %}{% if install_opencode %}OPENCODE_VERSION=$opencodeVersion`n{% endif %}REFRESH=$refresh`n"
         [IO.File]::WriteAllText($temporary, $contents, [Text.UTF8Encoding]::new($false))
         Move-Item -LiteralPath $temporary -Destination $candidateFile -Force
     } finally { Remove-Item $temporary -ErrorAction SilentlyContinue }
@@ -65,9 +91,19 @@ switch ($args[0]) {
     { $_ -in @($null, "", "prepare") } { Prepare-AgentBuild; break }
     "promote" {
         if (-not (Test-Path -LiteralPath $candidateFile -PathType Leaf)) { Fail "no agent build candidate exists" }
-        if (-not $args[1] -or -not $args[2] -or -not $args[3]) { Fail "promote requires exact Claude, Codex, and OpenCode versions" }
+        if ({% if install_claude %}-not $args[1] -or {% endif %}{% if install_codex %}-not $args[2] -or {% endif %}{% if install_opencode %}-not $args[3] -or {% endif %}$false) { Fail "promote requires an exact release version for each installed agent" }
         $contents = (Get-Content -LiteralPath $candidateFile | Where-Object { $_ -notmatch '^INSTALLED_' }) -join "`n"
-        $contents += "`nINSTALLED_CLAUDE_VERSION=$($args[1])`nINSTALLED_CODEX_VERSION=$($args[2])`nINSTALLED_OPENCODE_VERSION=$($args[3])`n"
+        $installed = ""
+{% if install_claude %}
+        $installed += "INSTALLED_CLAUDE_VERSION=$($args[1])`n"
+{% endif %}
+{% if install_codex %}
+        $installed += "INSTALLED_CODEX_VERSION=$($args[2])`n"
+{% endif %}
+{% if install_opencode %}
+        $installed += "INSTALLED_OPENCODE_VERSION=$($args[3])`n"
+{% endif %}
+        $contents += "`n" + $installed
         [IO.File]::WriteAllText($keyFile, $contents, [Text.UTF8Encoding]::new($false))
         Remove-Item -LiteralPath $candidateFile -Force
         break

@@ -54,6 +54,22 @@ render_project() {
     "$ROOT" "$destination"
 }
 
+render_project_agents() {
+  local language="$1" destination="$2" agents="$3"
+  local skeleton_key="include_${language}_skeleton"
+  copier copy --trust --defaults --vcs-ref HEAD \
+    --data project_name="Riprap ${language} Test" \
+    --data project_slug="riprap-${language}-test" \
+    --data project_description='Exercises the Riprap development container' \
+    --data language="$language" \
+    --data "$skeleton_key=false" \
+    --data author_name='Riprap Tests' \
+    --data author_email='riprap@example.com' \
+    --data open_source_license='Not Open Source' \
+    --data "agents=$agents" \
+    "$ROOT" "$destination"
+}
+
 assert_copier_in_container() (
   local language="$1"
   local temp project image version major
@@ -576,6 +592,72 @@ test_update_preserves_enabled_run_options() (
     fail 'the update discarded the project'"'"'s enabled run option'
 )
 
+# A project that selects a subset of the agents installs exactly those and labels only their
+# releases; an unselected agent has no command and no release label in the built image.
+# rq-487e0817
+test_selected_subset_installs_only_those_agents() (
+  local temp project tooling_image candidate_image agent_image project_id
+  temp="$(mktemp -d)"
+  tooling_image="localhost/riprap-subset-test-$$-tooling:latest"
+  candidate_image="localhost/riprap-subset-test-$$-agent:candidate"
+  agent_image="localhost/riprap-subset-test-$$-agent:latest"
+  trap 'podman image rm --force "$agent_image" "$candidate_image" "$tooling_image" >/dev/null 2>&1 || true; rm -rf "$temp"' EXIT
+  project="$temp/project"
+  render_project_agents rust "$project" '["Claude Code","OpenCode"]'
+  ! grep -Eq 'chatgpt\.com/codex/install\.sh' "$project/.riprap/managed/container/Agent.Containerfile" || \
+    fail 'the rendered agent image installs Codex although it was not selected'
+  podman build --tag "$tooling_image" "$project/.riprap/managed/container"
+  write_build_key "$project" 2.1.205 "" 1.15.11 pinned
+  build_agent_image "$project" "$candidate_image" "$tooling_image"
+  project_id=00000000-0000-4000-8000-000000000002
+  podman build -f "$project/.riprap/managed/container/AgentLabels.Containerfile" \
+    --build-arg CLAUDE_VERSION=2.1.205 --build-arg OPENCODE_VERSION=1.15.11 \
+    --build-arg TOOLING_IMAGE_ID=test-tooling \
+    --build-arg "RIPRAP_PROJECT_ID=$project_id" \
+    --build-arg "RIPRAP_AGENT_CANDIDATE_IMAGE=$candidate_image" \
+    --tag "$agent_image" "$project/.riprap/managed/container"
+  podman run --rm "$agent_image" claude --version >/dev/null || fail 'Claude is missing from a claude+opencode image'
+  podman run --rm "$agent_image" opencode --version >/dev/null || fail 'OpenCode is missing from a claude+opencode image'
+  ! podman run --rm "$agent_image" sh -c 'command -v codex' >/dev/null 2>&1 || \
+    fail 'Codex is present although it was not selected'
+  test "$(podman image inspect --format '{{ index .Labels "io.riprap.claude-version" }}' "$agent_image")" = 2.1.205 || \
+    fail 'the Claude release label is missing from a subset image'
+  test -z "$(podman image inspect --format '{{ index .Labels "io.riprap.codex-version" }}' "$agent_image")" || \
+    fail 'an unselected Codex carries a release label'
+)
+
+# A project that selects no agent still builds a working agent image: it carries the toolchain
+# but no agent command and no agent release label.
+# rq-944dc431
+test_no_agent_selection_builds_a_runnable_image() (
+  local temp project tooling_image candidate_image agent_image project_id agent label
+  temp="$(mktemp -d)"
+  tooling_image="localhost/riprap-noagent-test-$$-tooling:latest"
+  candidate_image="localhost/riprap-noagent-test-$$-agent:candidate"
+  agent_image="localhost/riprap-noagent-test-$$-agent:latest"
+  trap 'podman image rm --force "$agent_image" "$candidate_image" "$tooling_image" >/dev/null 2>&1 || true; rm -rf "$temp"' EXIT
+  project="$temp/project"
+  render_project_agents rust "$project" '[]'
+  podman build --tag "$tooling_image" "$project/.riprap/managed/container"
+  write_build_key "$project" "" "" "" pinned
+  build_agent_image "$project" "$candidate_image" "$tooling_image"
+  project_id=00000000-0000-4000-8000-000000000003
+  podman build -f "$project/.riprap/managed/container/AgentLabels.Containerfile" \
+    --build-arg TOOLING_IMAGE_ID=test-tooling \
+    --build-arg "RIPRAP_PROJECT_ID=$project_id" \
+    --build-arg "RIPRAP_AGENT_CANDIDATE_IMAGE=$candidate_image" \
+    --tag "$agent_image" "$project/.riprap/managed/container"
+  podman run --rm "$agent_image" copier --version >/dev/null || fail 'copier is missing from an agent-free image'
+  for agent in claude codex opencode; do
+    ! podman run --rm "$agent_image" sh -c "command -v $agent" >/dev/null 2>&1 || \
+      fail "$agent is present although no agent was selected"
+  done
+  for label in claude-version codex-version opencode-version; do
+    test -z "$(podman image inspect --format "{{ index .Labels \"io.riprap.$label\" }}" "$agent_image")" || \
+      fail "an agent-free image carries the io.riprap.$label label"
+  done
+)
+
 test_image_validation_uses_rootless_podman
 test_copier_version_parser_ignores_base_image_banner
 test_default_base_image_is_ubuntu_lts
@@ -590,4 +672,6 @@ test_current_codex_release_installs
 test_codex_archive_extraction_tolerates_restricted_metadata
 test_unprivileged_execution_in_python_container
 test_build_key_drives_the_layer_cache
+test_selected_subset_installs_only_those_agents
+test_no_agent_selection_builds_a_runnable_image
 printf 'PASS: generated development containers pin and provide agent tooling\n'

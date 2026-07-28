@@ -1,18 +1,27 @@
 ARG RIPRAP_TOOLING_IMAGE
 FROM ${RIPRAP_TOOLING_IMAGE}
 
+{% if install_claude %}
 ARG CLAUDE_VERSION
+{% endif %}
+{% if install_codex %}
 ARG CODEX_VERSION
+{% endif %}
+{% if install_opencode %}
 ARG OPENCODE_VERSION
+{% endif %}
 
 # The installers place files beneath HOME, which the tooling image sets to an
 # image-owned path outside /root. Each agent's own configuration home under that
 # path is a credential mount point at run time, so the image leaves nothing there.
+{% if install_claude %}
 RUN set -eu; \
     test -n "$CLAUDE_VERSION"; \
     curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_VERSION"; \
     rm -rf "$HOME/.claude.json" "$HOME/.claude"
+{% endif %}
 
+{% if install_codex %}
 # The installer extracts a release tarball with a bare `tar -xzf`. Under a root-mapped runtime
 # (Podman), GNU tar cannot restore the archive's runner ownership or perform its deferred directory
 # mode pass. Keep the build user's ownership and apply the build umask instead; the archive already
@@ -24,7 +33,9 @@ RUN set -eu; \
     TAR_OPTIONS='--no-same-owner --no-same-permissions'; \
     export TAR_OPTIONS; \
     curl -fsSL https://chatgpt.com/codex/install.sh | sh -s -- --release "$CODEX_VERSION"
+{% endif %}
 
+{% if install_opencode %}
 RUN set -eu; \
     test -n "$OPENCODE_VERSION"; \
     if [ "$OPENCODE_VERSION" = latest ]; then version_args=; else version_args="--version $OPENCODE_VERSION"; fi; \
@@ -35,12 +46,15 @@ RUN set -eu; \
 
 COPY opencode /usr/local/bin/opencode
 RUN chmod 0755 /usr/local/bin/opencode
+{% endif %}
 
+{% if install_codex %}
 ENV CODEX_HOME=/opt/riprap/home/.codex
+{% endif %}
 ENV DISABLE_AUTOUPDATER=1
 
 # Reach the agent programs as any unprivileged user, on the same terms as the toolchain the tooling
 # image installed. Every directory beneath the home directory is made sticky world-writable so any
 # runtime user can create the scratch and configuration directories the agents write at startup --
 # an agent installed as root leaves directories there that the runtime user must write into.
-RUN chmod -R a+rX /opt/riprap /opt/codex /opt/opencode && find /opt/riprap/home -type d -exec chmod 1777 {} +
+RUN chmod -R a+rX /opt/riprap{% if install_codex %} /opt/codex{% endif %}{% if install_opencode %} /opt/opencode{% endif %} && find /opt/riprap/home -type d -exec chmod 1777 {} +
