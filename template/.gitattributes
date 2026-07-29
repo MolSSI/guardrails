@@ -7,5 +7,9 @@
 *.ps1  text eol=lf
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
+# Templated scripts carry the same endings as the scripts they render to, so a "#!"
+# script source is discovered and checked out with the endings its interpreter needs.
+*.sh.jinja   text eol=lf
+*.ps1.jinja  text eol=lf
 .riprap/managed/hooks/* text eol=lf
 .riprap/managed/container/opencode text eol=lf

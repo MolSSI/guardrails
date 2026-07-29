@@ -289,7 +289,8 @@ assert_autoupdaters_disabled() {
 # command substitution would run this in a subshell and lose the status with it. The project is
 # copied inside the container and the mount is read-only, so an assertion that rewrites the managed
 # check cannot disturb the copy a later assertion renders against. Git initialization gives the
-# plugin an unambiguous worktree to resolve.
+# plugin a worktree to resolve for the baseline case; a separate assertion removes it to confirm the
+# guardrail does not depend on git.
 opencode_run_in_project() {
   local project="$1" image="$2" preparation="${3:-true}"
   OPENCODE_EXIT=0
@@ -329,6 +330,19 @@ assert_opencode_admits_a_request_inside_the_container() {
   opencode_run_in_project "$project" "$image"
   test "$OPENCODE_EXIT" -eq 0 || \
     fail "OpenCode did not handle a request inside the development container: $OPENCODE_OUTPUT"
+}
+
+# OpenCode derives the plugin's worktree from git, and leaves it empty when git resolves none: a
+# checkout that was never initialized, a bare repository, or a bind mount whose ownership git refuses.
+# None of those bear on whether we are containerized, so the guardrail must consult the managed check
+# rather than git state. Removing the repository after the copy is what reaches that path from inside
+# the container, where the canonical check still succeeds.
+# rq-2a2787e3
+assert_opencode_admits_a_request_without_a_git_worktree() {
+  local project="$1" image="$2"
+  opencode_run_in_project "$project" "$image" 'rm -rf .git'
+  test "$OPENCODE_EXIT" -eq 0 || \
+    fail "OpenCode refused a request inside the container when git resolved no worktree: $OPENCODE_OUTPUT"
 }
 
 # The tooling and agent installations occupy separate image definitions.
@@ -385,6 +399,7 @@ test_agent_pinning_in_rust_container() {
     assert_exported_image_keeps_image_owned_home \
     assert_autoupdaters_disabled \
     assert_opencode_admits_a_request_inside_the_container \
+    assert_opencode_admits_a_request_without_a_git_worktree \
     assert_opencode_refuses_when_the_check_reports_failure
 }
 
